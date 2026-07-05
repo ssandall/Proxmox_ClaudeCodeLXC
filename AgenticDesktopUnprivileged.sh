@@ -34,6 +34,9 @@
 #
 # Run on your Proxmox host:
 #   bash AgenticDesktopUnprivileged.sh
+#     OR
+# curl -fsSl https://raw.githubusercontent.com/ssandall/Proxmox_ClaudeCodeLXC/refs/heads/main/AgenticDesktopUnprivileged.sh -o /tmp/AgenticDesktopUnprivileged.sh && bash /tmp/AgenticDesktopUnprivileged.sh
+#
 # ============================================================================
 
 set -euo pipefail
