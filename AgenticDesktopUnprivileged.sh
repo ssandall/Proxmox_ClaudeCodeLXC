@@ -34,9 +34,6 @@
 #
 # Run on your Proxmox host:
 #   bash AgenticDesktopUnprivileged.sh
-#     OR
-# curl -fsSl https://raw.githubusercontent.com/ssandall/Proxmox_ClaudeCodeLXC/refs/heads/main/AgenticDesktopUnprivileged.sh -o /tmp/AgenticDesktopUnprivileged.sh && bash /tmp/AgenticDesktopUnprivileged.sh
-#
 # ============================================================================
 
 set -euo pipefail
@@ -263,9 +260,11 @@ echo ">>> Updating system..."
 apt-get upgrade -y -qq
 
 echo ">>> Installing core packages..."
+# NOTE: software-properties-common and apt-transport-https were removed in
+# Debian 13 (trixie) — they were Ubuntu carryovers and aren't needed here.
 apt-get install -y -qq \
   git curl wget unzip zip \
-  ca-certificates gnupg lsb-release apt-transport-https software-properties-common \
+  ca-certificates gnupg lsb-release \
   bash-completion locales sudo \
   htop nano vim tmux screen \
   jq tree \
