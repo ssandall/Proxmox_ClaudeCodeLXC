@@ -363,23 +363,26 @@ echo "    Compose $(docker compose version --short 2>/dev/null || echo 'included
 echo ">>> Building Claude Desktop (community Debian package)..."
 # aaddrick/claude-desktop-debian repackages the official Claude Desktop app
 # for Debian. NON-FATAL: if the build breaks (upstream changes), we fall back
-# to a claude.ai web-app launcher below. The build needs p7zip, icoutils, etc.
+# to a claude.ai web-app launcher below.
+# The build script REFUSES to run as root and calls sudo internally, so it
+# runs as the 'claude' user with passwordless sudo (kept permanently — this
+# box already runs Claude Code with all permissions, and it also silences
+# sudo prompts in RDP sessions and Playwright dep installs).
+echo "claude ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/99-claude
+chmod 440 /etc/sudoers.d/99-claude
 set +e
 CLAUDE_DESKTOP_OK=0
 apt-get install -y -qq p7zip-full icoutils imagemagick
-git clone --depth 1 https://github.com/aaddrick/claude-desktop-debian.git /tmp/claude-desktop-debian
-if [ -d /tmp/claude-desktop-debian ]; then
-  cd /tmp/claude-desktop-debian
-  if ./build.sh --build deb --clean yes; then
-    DEB_FILE=$(find /tmp/claude-desktop-debian -name 'claude-desktop*.deb' | head -1)
-    if [ -n "$DEB_FILE" ] && apt-get install -y "$DEB_FILE"; then
-      CLAUDE_DESKTOP_OK=1
-      echo "    Claude Desktop installed: $DEB_FILE"
-    fi
-  fi
-  cd /
-  rm -rf /tmp/claude-desktop-debian
+su - claude -c 'git clone --depth 1 https://github.com/aaddrick/claude-desktop-debian.git /tmp/claude-desktop-debian && cd /tmp/claude-desktop-debian && ./build.sh --build deb --clean yes'
+# The build produces TWO debs: claude-desktop-unofficial_*.deb (the real app)
+# and claude-desktop_*.deb (a transitional dummy that only depends on the
+# former). Install the real one.
+DEB_FILE=$(find /tmp/claude-desktop-debian -name 'claude-desktop-unofficial*.deb' 2>/dev/null | head -1)
+if [ -n "$DEB_FILE" ] && apt-get install -y "$DEB_FILE"; then
+  CLAUDE_DESKTOP_OK=1
+  echo "    Claude Desktop installed: $DEB_FILE"
 fi
+rm -rf /tmp/claude-desktop-debian
 if [ "$CLAUDE_DESKTOP_OK" -ne 1 ]; then
   echo "    [WARN] Claude Desktop build failed — creating claude.ai web launcher instead."
 fi
@@ -389,22 +392,26 @@ echo ">>> Creating desktop launchers..."
 mkdir -p /home/claude/Desktop
 
 if [ "$CLAUDE_DESKTOP_OK" -eq 1 ]; then
+  # The package's binary is /usr/bin/claude-desktop-unofficial (NOT
+  # claude-desktop) — resolve it from the package to be safe.
   # Electron sandbox can't start in an unprivileged LXC (nested userns
   # restrictions) — launch with --no-sandbox.
-  cat > /home/claude/Desktop/claude-desktop.desktop << 'DESK1'
+  CD_BIN=$(dpkg -L claude-desktop-unofficial 2>/dev/null | grep '^/usr/bin/' | head -1)
+  CD_BIN=${CD_BIN:-/usr/bin/claude-desktop-unofficial}
+  cat > /home/claude/Desktop/claude-desktop.desktop << DESK1
 [Desktop Entry]
 Type=Application
 Name=Claude
 Comment=Claude Desktop
-Exec=claude-desktop --no-sandbox %u
+Exec=$CD_BIN --no-sandbox %u
 Icon=claude-desktop
 Terminal=false
 Categories=Network;Utility;
 DESK1
-  # Also patch the system launcher so menu launches work too.
-  if [ -f /usr/share/applications/claude-desktop.desktop ]; then
-    sed -i 's|^Exec=claude-desktop|Exec=claude-desktop --no-sandbox|' /usr/share/applications/claude-desktop.desktop
-  fi
+  # Also patch the package's menu entry so menu launches work too.
+  for f in /usr/share/applications/claude-desktop*.desktop; do
+    [ -f "$f" ] && sed -i "s|^Exec=[^ ]*|Exec=$CD_BIN --no-sandbox|" "$f"
+  done
 else
   cat > /home/claude/Desktop/claude-desktop.desktop << 'DESK1'
 [Desktop Entry]
@@ -790,27 +797,4 @@ print_summary() {
   echo -e "  ${BOLD}Config:${NC}      /home/claude/.claude/settings.json"
   echo -e "  ${BOLD}Plugins:${NC}     frontend-design, code-review, commit-commands,"
   echo -e "               security-guidance, context7, superpowers"
-  echo -e "  ${BOLD}Skills:${NC}      webapp-testing (local, Playwright)"
-  echo -e "  ${BOLD}Auto-updates:${NC} Sundays 3 AM ET (system) / Daily 4 AM ET (Docker)"
-  echo ""
-  echo -e "  ${YELLOW}Notes:${NC}"
-  echo -e "  • Chromium/Electron sandboxes can't start in unprivileged LXCs —"
-  echo -e "    the Claude launcher already passes ${CYAN}--no-sandbox${NC}; do the same for"
-  echo -e "    Playwright (${CYAN}chromiumSandbox: false${NC})."
-  echo -e "  • Rendering is software-only (no GPU passthrough in this config)."
-  echo ""
-}
-
-# ── Main ──────────────────────────────────────────────────────────────────
-main() {
-  header
-  preflight
-  get_config
-  get_template
-  create_container
-  start_container
-  provision_container
-  print_summary
-}
-
-main "$@"
+  echo -e "  ${BOLD}Skills:${NC}      webapp-testin
